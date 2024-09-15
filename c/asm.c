@@ -72,30 +72,54 @@ int read_file(FILE *in, str *s) {
 
 #define INBOUNDS(a, n) (0 <= n && (size_t)n < (sizeof a / sizeof *a))
 
-void print_imm(int op, lv *p, int imm) {
-  static str imm_str;
-
-  if (!imm_str.sv) {
-    imm_str = str_new();
-  } else {
-    imm_str.c = 0;
+const char *fmt_imm(int op, lv *p, int imm) {
+#define PREP_BUFFER                                                            \
+  do {                                                                         \
+    if (!buf.sv)                                                               \
+      buf = str_new();                                                         \
+    else                                                                       \
+      buf.c = 0;                                                               \
+  } while (0)
+#define PRETTY_OP(n, opdefs)                                                   \
+  {                                                                            \
+    if (!INBOUNDS(opdefs, imm))                                                \
+      return "??";                                                             \
+    PREP_BUFFER;                                                               \
+    str_addc(&buf, '`');                                                       \
+    str_addz(&buf, opdefs[imm].name);                                          \
+    str_addc(&buf, '`');                                                       \
+    break;                                                                     \
   }
 
+  static str buf;
   switch (op) {
   case LIT: {
-    show(&imm_str, blk_getimm(p, imm), 1);
-    str_term(&imm_str);
-    printf("%s", imm_str.sv);
+    PREP_BUFFER;
+    show(&buf, blk_getimm(p, imm), 1);
     break;
   }
-  case OP2: {
-    printf("`%s`", INBOUNDS(dyads, imm) ? dyads[imm].name : "??");
-    break;
-  }
+
+  case OP1:
+    PRETTY_OP(1, monads);
+  case OP2:
+    PRETTY_OP(2, dyads);
+  case OP3:
+    PRETTY_OP(3, triads);
+
+  case BUND:
+  case GET:
+  case SET:
+    return 0;
+
   default:
-    printf("??");
-    break;
+    return "??";
   }
+
+  str_term(&buf);
+  return buf.sv;
+
+#undef PREP_BUFFER
+#undef PRETTY_OP
 }
 
 int main(int argc, char **argv) {
@@ -194,8 +218,8 @@ int main(int argc, char **argv) {
     int imm = width == 3 ? blk_gets(prog, pc + 1) : -1;
     printf("[%0.4x] %s", pc, opnames[op]);
     if (imm != -1) {
-      printf(" #%d - ", imm);
-      print_imm(op, prog, imm);
+      const char *pretty = fmt_imm(op, prog, imm);
+      printf(" #%d%s%s", imm, pretty ? " - " : "", pretty ? pretty : "");
     }
     printf("\n");
 
