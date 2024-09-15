@@ -70,6 +70,34 @@ int read_file(FILE *in, str *s) {
   return feof(in);
 }
 
+#define INBOUNDS(a, n) (0 <= n && (size_t)n < (sizeof a / sizeof *a))
+
+void print_imm(int op, lv *p, int imm) {
+  static str imm_str;
+
+  if (!imm_str.sv) {
+    imm_str = str_new();
+  } else {
+    imm_str.c = 0;
+  }
+
+  switch (op) {
+  case LIT: {
+    show(&imm_str, blk_getimm(p, imm), 1);
+    str_term(&imm_str);
+    printf("%s", imm_str.sv);
+    break;
+  }
+  case OP2: {
+    printf("`%s`", INBOUNDS(dyads, imm) ? dyads[imm].name : "??");
+    break;
+  }
+  default:
+    printf("??");
+    break;
+  }
+}
+
 int main(int argc, char **argv) {
   EXE = argc ? argv[0] : "<exe>";
 
@@ -145,31 +173,34 @@ int main(int argc, char **argv) {
   };
   const int opcount = (int)(sizeof opnames / sizeof *opnames);
 
-  int i = 0;
-  while (i < prog->n) {
-    int c = prog->sv[i];
-    if (c < 0 || opcount <= c) {
-      fprintf(stderr, "invalid opcode byte %x at offset %d\n", c, i);
+  for (int width, pc = 0; pc < prog->n; pc += width) {
+    // Sanity check that it is valid to index `opnames` & `oplens`.
+    int op = prog->sv[pc];
+    if (op < 0 || opcount <= op) {
+      fprintf(stderr, "invalid opcode byte %x at offset %d\n", op, pc);
       return 1;
     }
 
-    int n = oplens[c];
-    int missing = i + n - prog->n;
+    // Sanity check that we will not read outside the program buffer when
+    // decoding this instruction.
+    width = oplens[op];
+    int missing = pc + width - prog->n;
     if (missing > 0) {
-      fprintf(stderr, "bad opcode: %s missing %d byte%s\n", opnames[c], missing,
-              missing == 1 ? "" : "s");
+      fprintf(stderr, "bad opcode: %s missing %d byte%s\n", opnames[op],
+              missing, missing == 1 ? "" : "s");
       return 1;
     }
 
-    printf("[%0.4x] %s", i++, opnames[c]);
-    if (n == 3) {
-      printf(" #%d", blk_gets(prog, i));
+    int imm = width == 3 ? blk_gets(prog, pc + 1) : -1;
+    printf("[%0.4x] %s", pc, opnames[op]);
+    if (imm != -1) {
+      printf(" #%d - ", imm);
+      print_imm(op, prog, imm);
     }
     printf("\n");
 
-    while (--n) {
-      printf("[%0.4x]   0x%0.2x\n", i, (int)prog->sv[i]);
-      ++i;
+    for (int i = 1; i < width; ++i) {
+      printf("[%0.4x]   0x%0.2x\n", pc + i, (int)prog->sv[pc + i]);
     }
   }
 }
