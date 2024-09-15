@@ -12,12 +12,12 @@ else
 endif
 ifeq ($(UNAME),Darwin)
 	OPEN=open
-	COMPILER=clang
-	FLAGS=-Wall -Werror -Wextra -Wpedantic -Os -Wstrict-prototypes
+	COMPILER=cc
+	FLAGS=-Wall -Werror -Wextra -Wpedantic -O0 -g -Wstrict-prototypes
 	# -Wno-misleading-indentation silences warnings which are entirely spurious.
 	FLAGS:=$(FLAGS) -Wno-misleading-indentation -Wno-unknown-warning-option
-	# FLAGS:=$(FLAGS) -fsanitize=undefined
-	# FLAGS:=$(FLAGS) -fsanitize=address
+	#FLAGS:=$(FLAGS) -fsanitize=undefined
+	#FLAGS:=$(FLAGS) -fsanitize=address
 endif
 ifeq ($(UNAME),Linux)
 	OPEN=xdg-open
@@ -46,17 +46,29 @@ endif
 # include potentially unsafe/nonportable scripting APIs
 # FLAGS:=$(FLAGS) -DDANGER_ZONE
 
-resources:
-	@chmod +x ./scripts/resources.sh
-	@./scripts/resources.sh examples/decks/tour.deck
+.PHONY: resources
+resources: c/resources.h
 
-lilt: resources
-	@mkdir -p c/build
-	@$(COMPILER) ./c/lilt.c -o ./c/build/lilt $(FLAGS) -DVERSION="\"$(VERSION)\""
+.PHONY: asm
+asm: c/build/asm
 
-decker: resources
-	@mkdir -p c/build
-	@$(COMPILER) ./c/decker.c -o ./c/build/decker $(SDL) $(FLAGS) -DVERSION="\"$(VERSION)\""
+.PHONY: lilt
+lilt: c/build/lilt
+
+.PHONY: decker
+decker: c/build/decker
+
+c/resources.h: scripts/resources.sh examples/decks/tour.deck
+	chmod +x ./scripts/resources.sh
+	./scripts/resources.sh examples/decks/tour.deck
+
+c/build/%: c/%.c c/resources.h c/lil.h c/dom.h c/io_sdl1.h c/io_sdl2.h
+	mkdir -p c/build
+	$(COMPILER) $< -o $@ $(FLAGS) -DVERSION="\"$(VERSION)\""
+
+c/build/decker: c/decker.c c/resources.h c/lil.h c/dom.h c/io_sdl1.h c/io_sdl2.h
+	mkdir -p c/build
+	$(COMPILER) $< -o $@ $(SDL) $(FLAGS) -DVERSION="\"$(VERSION)\""
 
 clean:
 	@rm -rf ./c/build/
