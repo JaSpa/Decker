@@ -72,6 +72,15 @@ int read_file(FILE *in, str *s) {
 
 #define INBOUNDS(a, n) (0 <= n && (size_t)n < (sizeof a / sizeof *a))
 
+#define C_RST ""         // reset
+#define C_OPC "1;7"      // bold
+#define C_ARG "38;5;251" // white
+#define C_LIT "32"       // green
+#define C_OPN "35"       // magenta
+
+static int DO_COLORS;
+#define C(name) (DO_COLORS ? "\033[" C_##name "m" : "")
+
 const char *fmt_imm(int op, lv *p, int imm) {
 #define PREP_BUFFER                                                            \
   do {                                                                         \
@@ -80,14 +89,22 @@ const char *fmt_imm(int op, lv *p, int imm) {
     else                                                                       \
       buf.c = 0;                                                               \
   } while (0)
+#define BUF_ADDRAW(s)                                                          \
+  do {                                                                         \
+    for (const char *p = (s); p && *p; ++p) {                                  \
+      str_addraw(&buf, *p);                                                    \
+    }                                                                          \
+  } while (0)
 #define PRETTY_OP(n, opdefs)                                                   \
   {                                                                            \
     if (!INBOUNDS(opdefs, imm))                                                \
       return "??";                                                             \
     PREP_BUFFER;                                                               \
+    BUF_ADDRAW(C(OPN));                                                        \
     str_addc(&buf, '`');                                                       \
     str_addz(&buf, opdefs[imm].name);                                          \
     str_addc(&buf, '`');                                                       \
+    BUF_ADDRAW(C(RST));                                                        \
     break;                                                                     \
   }
 
@@ -95,7 +112,9 @@ const char *fmt_imm(int op, lv *p, int imm) {
   switch (op) {
   case LIT: {
     PREP_BUFFER;
+    BUF_ADDRAW(C(LIT));
     show(&buf, blk_getimm(p, imm), 1);
+    BUF_ADDRAW(C(RST));
     break;
   }
 
@@ -123,6 +142,7 @@ const char *fmt_imm(int op, lv *p, int imm) {
 }
 
 int main(int argc, char **argv) {
+  DO_COLORS = isatty(STDOUT_FILENO);
   EXE = argc ? argv[0] : "<exe>";
 
   int ch;
@@ -216,15 +236,17 @@ int main(int argc, char **argv) {
     }
 
     int imm = width == 3 ? blk_gets(prog, pc + 1) : -1;
-    printf("[%0.4x] %s", pc, opnames[op]);
+    printf("%s[%0.4x] %s", C(OPC), pc, opnames[op]);
     if (imm != -1) {
       const char *pretty = fmt_imm(op, prog, imm);
-      printf(" #%d%s%s", imm, pretty ? " - " : "", pretty ? pretty : "");
+      printf(" (#%d)%s%s%s", imm, C(RST), pretty ? "  " : "",
+             pretty ? pretty : "");
     }
-    printf("\n");
+    printf("%s\n", C(RST));
 
     for (int i = 1; i < width; ++i) {
-      printf("[%0.4x]   0x%0.2x\n", pc + i, (int)prog->sv[pc + i]);
+      printf("%s[%0.4x]   0x%0.2x%s\n", C(ARG), pc + i, (int)prog->sv[pc + i],
+             C(RST));
     }
   }
 }
