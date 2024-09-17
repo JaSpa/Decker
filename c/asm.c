@@ -61,10 +61,6 @@ lv *n_show(lv *self, lv *a) {
   RT_DUMMY
 }
 
-static const char *EXE;
-
-void usage(void) { fprintf(stderr, "usage: %s [-e EXPR | FILE]\n", EXE); }
-
 int read_file(FILE *in, str *s) {
   int ch;
   while ((ch = fgetc(in)) != EOF) {
@@ -75,6 +71,11 @@ int read_file(FILE *in, str *s) {
 
 #define INBOUNDS(a, n) (0 <= n && (size_t)n < (sizeof a / sizeof *a))
 
+static struct {
+  uint8_t verbose : 1;
+  uint8_t colorized : 1;
+} OUT_FMT;
+
 #define C_RST ""         // reset
 #define C_OPC "1;7"      // bold, reverse
 #define C_ARG "38;5;251" // white
@@ -82,8 +83,17 @@ int read_file(FILE *in, str *s) {
 #define C_OPN "35"       // magenta
 #define C_ERR "1;31"     // bold, red
 
-static int DO_COLORS;
-#define C(name) (DO_COLORS ? "\033[" C_##name "m" : "")
+#define C(name) (OUT_FMT.colorized ? "\033[" C_##name "m" : "")
+
+__dead2 __printflike(1, 2) void err_exit(const char *fmt, ...) {
+  fprintf(stderr, "%serror:%s ", C(ERR), C(RST));
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  putc('\n', stderr);
+  exit(1);
+}
 
 const char *fmt_imm(int op, lv *p, int imm, int *len) {
 #define PREP_BUFFER                                                            \
@@ -155,41 +165,7 @@ const char *fmt_imm(int op, lv *p, int imm, int *len) {
 #undef PRETTY_OP
 }
 
-typedef struct {
-  size_t size, cap, idx;
-  lv **fns;
-} fn_refs;
-
-int fn_refs_insert(fn_refs *refs, lv *fn) {
-  size_t i = 0;
-  while (i < refs->size) {
-    if (fn == refs->fns[i++])
-      return 0;
-  }
-
-  if (refs->cap <= i) {
-    if (!(refs->fns = realloc(refs->fns, refs->cap = MAX(8, refs->cap * 2)))) {
-      perror(0);
-      abort();
-    }
-  }
-
-  refs->fns[i] = fn;
-  refs->size = i + 1;
-  return 1;
-}
-
-__dead2 __printflike(1, 2) void err_exit(const char *fmt, ...) {
-  fprintf(stderr, "%serror:%s ", C(ERR), C(RST));
-  va_list ap;
-  va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
-  va_end(ap);
-  putc('\n', stderr);
-  exit(1);
-}
-
-void pretty_block(lv *b, fn_refs *referenced_fns) {
+void pretty_block(lv *b, lv *d_fns) {
   const char *const opnames[] = {
       "JUMP", "JUMPF", "LIT",  "DUP", "DROP", "SWAP",  "OVER", "BUND", "OP1",
       "OP2",  "OP3",   "GET",  "SET", "LOC",  "AMEND", "TAIL", "CALL", "BIND",
@@ -217,12 +193,13 @@ void pretty_block(lv *b, fn_refs *referenced_fns) {
     if (op == LIT) {
       lv *lit = blk_getimm(b, imm);
       if (lion(lit)) {
-        fn_refs_insert(referenced_fns, lit);
+        dset(d_fns, lit, ONE);
       }
     }
 
     int fmtlen = 0;
-    printf("%s", C(OPC));
+    const char *c_opc = OUT_FMT.verbose ? C(OPC) : "";
+    printf("%s", c_opc);
     fmtlen += printf("[%0.4x] %s", pc, opnames[op]);
     if (imm != -1) {
       const char *pretty = fmt_imm(op, b, imm, &fmtlen);
@@ -231,28 +208,41 @@ void pretty_block(lv *b, fn_refs *referenced_fns) {
       printf("%s%s", pretty ? "  " : "", pretty ? pretty : "");
       fmtlen += pretty ? 2 : 0;
     }
-    if (fmtlen < 80 && DO_COLORS)
-      printf("%s%*s", C(OPC), 80 - fmtlen, "");
+    if (fmtlen < 80 && OUT_FMT.colorized && OUT_FMT.verbose)
+      printf("%s%*s", c_opc, 80 - fmtlen, "");
     printf("%s\n", C(RST));
 
-    for (int i = 1; i < width; ++i) {
-      printf("%s[%0.4x]   0x%0.2x%s\n", C(ARG), pc + i, (int)b->sv[pc + i],
-             C(RST));
+    if (OUT_FMT.verbose) {
+      for (int i = 1; i < width; ++i) {
+        printf("%s[%0.4x]   0x%0.2x%s\n", C(ARG), pc + i, (int)b->sv[pc + i],
+               C(RST));
+      }
     }
   }
 }
 
+static const char *EXE;
+
+void usage(void) { fprintf(stderr, "usage: %s [-pv] [-e EXPR | FILE]\n", EXE); }
+
 int main(int argc, char **argv) {
-  DO_COLORS = isatty(STDOUT_FILENO);
   EXE = argc ? argv[0] : "<exe>";
+
+  OUT_FMT.colorized = isatty(STDOUT_FILENO);
 
   int ch;
   char *expr = 0;
 
-  while ((ch = getopt(argc, argv, "he:")) != -1) {
+  while ((ch = getopt(argc, argv, "e:hpv")) != -1) {
     switch (ch) {
     case 'e':
       expr = optarg;
+      break;
+    case 'p':
+      OUT_FMT.colorized = 0;
+      break;
+    case 'v':
+      OUT_FMT.verbose = 1;
       break;
     case 'h':
     default:
@@ -310,12 +300,12 @@ int main(int argc, char **argv) {
              par.error);
   }
 
-  fn_refs referenced = {0};
-  pretty_block(prog, &referenced);
+  lv *ref_fns = lmd();
+  pretty_block(prog, ref_fns);
 
-  for (size_t ref_idx = 0; ref_idx < referenced.size; ++ref_idx) {
-    lv *fn = referenced.fns[ref_idx];
+  EACH(i, ref_fns) {
+    lv *fn = ref_fns->kv[i];
     printf("\n«%s»\n", fn->sv);
-    pretty_block(fn->b, &referenced);
+    pretty_block(fn->b, ref_fns);
   }
 }
