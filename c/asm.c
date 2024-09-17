@@ -151,6 +151,30 @@ const char *fmt_imm(int op, lv *p, int imm, int *len) {
 #undef PRETTY_OP
 }
 
+typedef struct {
+  size_t size, cap, idx;
+  lv **fns;
+} fn_refs;
+
+int fn_refs_insert(fn_refs *refs, lv *fn) {
+  size_t i = 0;
+  while (i < refs->size) {
+    if (fn == refs->fns[i++])
+      return 0;
+  }
+
+  if (refs->cap <= i) {
+    if (!(refs->fns = realloc(refs->fns, refs->cap = MAX(8, refs->cap * 2)))) {
+      perror(0);
+      abort();
+    }
+  }
+
+  refs->fns[i] = fn;
+  refs->size = i + 1;
+  return 1;
+}
+
 int main(int argc, char **argv) {
   DO_COLORS = isatty(STDOUT_FILENO);
   EXE = argc ? argv[0] : "<exe>";
@@ -227,6 +251,8 @@ int main(int argc, char **argv) {
   };
   const int opcount = (int)(sizeof opnames / sizeof *opnames);
 
+  fn_refs referenced = {0};
+
   for (int width, pc = 0; pc < prog->n; pc += width) {
     // Sanity check that it is valid to index `opnames` & `oplens`.
     int op = prog->sv[pc];
@@ -246,6 +272,13 @@ int main(int argc, char **argv) {
     }
 
     int imm = width == 3 ? blk_gets(prog, pc + 1) : -1;
+    if (op == LIT) {
+      lv *lit = blk_getimm(prog, imm);
+      if (lion(lit)) {
+        fn_refs_insert(&referenced, lit);
+      }
+    }
+
     int fmtlen = 0;
     printf("%s", C(OPC));
     fmtlen += printf("[%0.4x] %s", pc, opnames[op]);
@@ -256,7 +289,7 @@ int main(int argc, char **argv) {
       printf("%s%s", pretty ? "  " : "", pretty ? pretty : "");
       fmtlen += pretty ? 2 : 0;
     }
-    if (fmtlen < 80)
+    if (fmtlen < 80 && DO_COLORS)
       printf("%s%*s", C(OPC), 80 - fmtlen, "");
     printf("%s\n", C(RST));
 
@@ -264,5 +297,10 @@ int main(int argc, char **argv) {
       printf("%s[%0.4x]   0x%0.2x%s\n", C(ARG), pc + i, (int)prog->sv[pc + i],
              C(RST));
     }
+  }
+
+  printf("\nREFERENCED FUNCTIONS: %zu\n", referenced.size);
+  for (size_t i = 0; i < referenced.size; ++i) {
+    printf("  - %s\n", referenced.fns[i]->sv);
   }
 }
