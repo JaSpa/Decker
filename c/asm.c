@@ -81,7 +81,7 @@ int read_file(FILE *in, str *s) {
 static int DO_COLORS;
 #define C(name) (DO_COLORS ? "\033[" C_##name "m" : "")
 
-const char *fmt_imm(int op, lv *p, int imm) {
+const char *fmt_imm(int op, lv *p, int imm, int *len) {
 #define PREP_BUFFER                                                            \
   do {                                                                         \
     if (!buf.sv)                                                               \
@@ -105,6 +105,8 @@ const char *fmt_imm(int op, lv *p, int imm) {
     str_addz(&buf, opdefs[imm].name);                                          \
     str_addc(&buf, '`');                                                       \
     BUF_ADDRAW(C(RST));                                                        \
+    if (len)                                                                   \
+      *len += strlen(opdefs[imm].name) + 2;                                    \
     break;                                                                     \
   }
 
@@ -113,8 +115,12 @@ const char *fmt_imm(int op, lv *p, int imm) {
   case LIT: {
     PREP_BUFFER;
     BUF_ADDRAW(C(LIT));
+    int c_pre = buf.c;
     show(&buf, blk_getimm(p, imm), 1);
+    int c_post = buf.c;
     BUF_ADDRAW(C(RST));
+    if (len)
+      *len += c_post - c_pre;
     break;
   }
 
@@ -130,8 +136,12 @@ const char *fmt_imm(int op, lv *p, int imm) {
   case SET:
     return 0;
 
-  default:
-    return "??";
+  default: {
+    const char *s = "??";
+    if (len)
+      *len += strlen(s);
+    return s;
+  }
   }
 
   str_term(&buf);
@@ -236,12 +246,18 @@ int main(int argc, char **argv) {
     }
 
     int imm = width == 3 ? blk_gets(prog, pc + 1) : -1;
-    printf("%s[%0.4x] %s", C(OPC), pc, opnames[op]);
+    int fmtlen = 0;
+    printf("%s", C(OPC));
+    fmtlen += printf("[%0.4x] %s", pc, opnames[op]);
     if (imm != -1) {
-      const char *pretty = fmt_imm(op, prog, imm);
-      printf(" (#%d)%s%s%s", imm, C(RST), pretty ? "  " : "",
-             pretty ? pretty : "");
+      const char *pretty = fmt_imm(op, prog, imm, &fmtlen);
+      fmtlen += printf(" (#%d)", imm);
+      // printf("%s", C(RST));
+      printf("%s%s", pretty ? "  " : "", pretty ? pretty : "");
+      fmtlen += pretty ? 2 : 0;
     }
+    if (fmtlen < 80)
+      printf("%s%*s", C(OPC), 80 - fmtlen, "");
     printf("%s\n", C(RST));
 
     for (int i = 1; i < width; ++i) {
