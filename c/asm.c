@@ -223,23 +223,21 @@ void pretty_block(lv *b, lv *d_fns) {
 
 static const char *EXE;
 
-void usage(void) { fprintf(stderr, "usage: %s [-pv] [-e EXPR | FILE]\n", EXE); }
+void usage(void) { fprintf(stderr, "usage: %s [-Cv] [-e EXPR | FILE]\n", EXE); }
 
 int main(int argc, char **argv) {
   EXE = argc ? argv[0] : "<exe>";
-
-  OUT_FMT.colorized = isatty(STDOUT_FILENO);
 
   int ch;
   char *expr = 0;
 
   while ((ch = getopt(argc, argv, "e:hpv")) != -1) {
     switch (ch) {
+    case 'C':
+      OUT_FMT.colorized = 1;
+      break;
     case 'e':
       expr = optarg;
-      break;
-    case 'p':
-      OUT_FMT.colorized = 0;
       break;
     case 'v':
       OUT_FMT.verbose = 1;
@@ -248,6 +246,15 @@ int main(int argc, char **argv) {
     default:
       return ch != 'h';
     }
+  }
+
+  // Auto-enable colorization if
+  //   * stdout is connected to a terminal
+  //   * $NO_COLOR is unset/set to an empty string (see https://no-color.org/)
+  if (!OUT_FMT.colorized) {
+    const char *colors_env = getenv("NO_COLOR");
+    int colors = colors_env && *colors_env != '\0';
+    OUT_FMT.colorized = colors && isatty(STDOUT_FILENO);
   }
 
   argc -= optind;
