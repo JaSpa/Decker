@@ -126,6 +126,10 @@ const char *fmt_imm(int op, lv *p, int imm, int *len) {
 
   static str buf;
   switch (op) {
+  case AMEND:
+  case GET:
+  case SET:
+  case LOC:
   case LIT: {
     PREP_BUFFER;
     BUF_ADDRAW(C(LIT));
@@ -146,8 +150,6 @@ const char *fmt_imm(int op, lv *p, int imm, int *len) {
     PRETTY_OP(3, triads);
 
   case BUND:
-  case GET:
-  case SET:
     return 0;
 
   default: {
@@ -165,7 +167,7 @@ const char *fmt_imm(int op, lv *p, int imm, int *len) {
 #undef PRETTY_OP
 }
 
-void pretty_block(lv *b, lv *d_fns) {
+void pretty_block(lv *b, lv *parents, lv *d_fns) {
   const char *const opnames[] = {
       "JUMP", "JUMPF", "LIT",  "DUP", "DROP", "SWAP",  "OVER", "BUND", "OP1",
       "OP2",  "OP3",   "GET",  "SET", "LOC",  "AMEND", "TAIL", "CALL", "BIND",
@@ -193,7 +195,7 @@ void pretty_block(lv *b, lv *d_fns) {
     if (op == LIT) {
       lv *lit = blk_getimm(b, imm);
       if (lion(lit)) {
-        dset(d_fns, lit, ONE);
+        dset(d_fns, lit, parents);
       }
     }
 
@@ -231,7 +233,7 @@ int main(int argc, char **argv) {
   int ch;
   char *expr = 0;
 
-  while ((ch = getopt(argc, argv, "e:hpv")) != -1) {
+  while ((ch = getopt(argc, argv, "Ce:hv")) != -1) {
     switch (ch) {
     case 'C':
       OUT_FMT.colorized = 1;
@@ -253,8 +255,8 @@ int main(int argc, char **argv) {
   //   * $NO_COLOR is unset/set to an empty string (see https://no-color.org/)
   if (!OUT_FMT.colorized) {
     const char *colors_env = getenv("NO_COLOR");
-    int colors = colors_env && *colors_env != '\0';
-    OUT_FMT.colorized = colors && isatty(STDOUT_FILENO);
+    int no_colors = colors_env && *colors_env != '\0';
+    OUT_FMT.colorized = !no_colors && isatty(STDOUT_FILENO);
   }
 
   argc -= optind;
@@ -308,11 +310,15 @@ int main(int argc, char **argv) {
   }
 
   lv *ref_fns = lmd();
-  pretty_block(prog, ref_fns);
+  pretty_block(prog, lml(0), ref_fns);
 
+  lv *s_dot = lmcstr(".");
   EACH(i, ref_fns) {
     lv *fn = ref_fns->kv[i];
-    printf("\n«%s»\n", fn->sv);
-    pretty_block(fn->b, ref_fns);
+    lv *parents = ref_fns->lv[i];
+    lv *parts = l_comma(parents, l_first(fn));
+    lv *name = l_fuse(s_dot, parts);
+    printf("\n«%s»\n", name->sv);
+    pretty_block(fn->b, parts, ref_fns);
   }
 }
