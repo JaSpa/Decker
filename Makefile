@@ -4,15 +4,14 @@ EXTRA_FLAGS?=
 
 ifneq ("$(wildcard /usr/bin/olpc-hwinfo)","")
 	# building on an OLPC; use SDL 1.2
-	SDL=$(shell sdl-config --cflags --libs)
-	SDL:=$(SDL) -lSDL_image
+	SDLV = 1
+	SDL_FLAGS	= $(shell sdl-config --cflags --libs) -lSDL_image
 else
-	SDL=$(shell sdl2-config --cflags --libs)
-	SDL:=$(SDL) -lSDL2_image
+	SDLV = 2
+	SDL_FLAGS	= $(shell sdl2-config --cflags --libs) -lSDL2_image
 endif
 ifeq ($(UNAME),Darwin)
 	OPEN=open
-	COMPILER=cc
 	FLAGS=-Wall -Werror -Wextra -Wpedantic -O0 -g -Wstrict-prototypes
 	# -Wno-misleading-indentation silences warnings which are entirely spurious.
 	FLAGS:=$(FLAGS) -Wno-misleading-indentation -Wno-unknown-warning-option
@@ -21,7 +20,6 @@ ifeq ($(UNAME),Darwin)
 endif
 ifeq ($(UNAME),Linux)
 	OPEN=xdg-open
-	COMPILER=gcc
 	# _BSD_SOURCE is required by older versions of GCC to find various posix extensions like realpath().
 	# _DEFAULT_SOURCE is the same deal, except newer versions of GCC need it
 	# _POSIX_C_SOURCE is also needed by bestline on older versions of GCC
@@ -33,7 +31,6 @@ ifeq ($(UNAME),Linux)
 endif
 ifeq ($(UNAME),OpenBSD)
 	OPEN=xdg-open
-	COMPILER=clang
 	FLAGS=-Wall -Werror -Wextra -Wpedantic -O2
 	# -Wno-misleading-indentation silences warnings which are entirely spurious.
 	FLAGS:=$(FLAGS) -Wno-misleading-indentation -Wno-unknown-warning-option
@@ -46,29 +43,23 @@ endif
 # include potentially unsafe/nonportable scripting APIs
 # FLAGS:=$(FLAGS) -DDANGER_ZONE
 
+.PHONY: asm lilt decker
+asm lilt decker: %: c/build/%
+
 .PHONY: resources
 resources: c/resources.h
 
-.PHONY: asm
-asm: c/build/asm
-
-.PHONY: lilt
-lilt: c/build/lilt
-
-.PHONY: decker
-decker: c/build/decker
-
 c/resources.h: scripts/resources.sh examples/decks/tour.deck
-	chmod +x ./scripts/resources.sh
-	./scripts/resources.sh examples/decks/tour.deck
+	chmod +x $<
+	./$^
 
-c/build/%: c/%.c c/resources.h c/lil.h c/dom.h c/io_sdl1.h c/io_sdl2.h
-	mkdir -p c/build
-	$(COMPILER) $< -o $@ $(FLAGS) -DVERSION="\"$(VERSION)\""
+c/build:
+	mkdir $@
 
-c/build/decker: c/decker.c c/resources.h c/lil.h c/dom.h c/io_sdl1.h c/io_sdl2.h
-	mkdir -p c/build
-	$(COMPILER) $< -o $@ $(SDL) $(FLAGS) -DVERSION="\"$(VERSION)\""
+c/build/decker: FLAGS := $(SDL_FLAGS) $(FLAGS)
+
+c/build/%: c/%.c c/resources.h c/lil.h c/dom.h c/io_sdl$(SDLV).h | c/build
+	$(CC) $< -o $@ $(FLAGS) -DVERSION="\"$(VERSION)\""
 
 clean:
 	@rm -rf ./c/build/
