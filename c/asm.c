@@ -61,7 +61,7 @@ lv *n_show(lv *self, lv *a) {
   RT_DUMMY
 }
 
-int read_file(FILE *in, str *s) {
+static int read_file(FILE *in, str *s) {
   int ch;
   while ((ch = fgetc(in)) != EOF) {
     str_addraw(s, ch);
@@ -85,7 +85,7 @@ static struct {
 
 #define C(name) (OUT_FMT.colorized ? "\033[" C_##name "m" : "")
 
-__dead2 __printflike(1, 2) void err_exit(const char *fmt, ...) {
+__dead2 __printflike(1, 2) static void err_exit(const char *fmt, ...) {
   fprintf(stderr, "%serror:%s ", C(ERR), C(RST));
   va_list ap;
   va_start(ap, fmt);
@@ -95,7 +95,7 @@ __dead2 __printflike(1, 2) void err_exit(const char *fmt, ...) {
   exit(1);
 }
 
-const char *fmt_imm(int op, lv *p, int imm, int *len) {
+static const char *fmt_imm(int op, lv *p, int imm, int *len) {
 #define PREP_BUFFER                                                            \
   do {                                                                         \
     if (!buf.sv)                                                               \
@@ -167,7 +167,7 @@ const char *fmt_imm(int op, lv *p, int imm, int *len) {
 #undef PRETTY_OP
 }
 
-void pretty_block(lv *b, lv *parents, lv *d_fns) {
+static void pretty_block(lv *b, lv *parents, lv *d_fns) {
   const char *const opnames[] = {
       "JUMP", "JUMPF", "LIT",  "DUP", "DROP", "SWAP",  "OVER", "BUND", "OP1",
       "OP2",  "OP3",   "GET",  "SET", "LOC",  "AMEND", "TAIL", "CALL", "BIND",
@@ -225,7 +225,9 @@ void pretty_block(lv *b, lv *parents, lv *d_fns) {
 
 static const char *EXE;
 
-void usage(void) { fprintf(stderr, "usage: %s [-Cv] [-e EXPR | FILE]\n", EXE); }
+static void usage(void) {
+  fprintf(stderr, "usage: %s [-Cv] [-e EXPR | FILE]\n", EXE);
+}
 
 int main(int argc, char **argv) {
   EXE = argc ? argv[0] : "<exe>";
